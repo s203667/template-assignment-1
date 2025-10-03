@@ -4,7 +4,7 @@ import pandas as pd
 import gurobipy as gp
 import xarray as xr
 
-from src.data_ops import data_loader
+from data_ops import data_loader
 
 
 class OptModel:

@@ -6,5 +6,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly
 
-class DataVidualizer:
+class DataVisualizer:
     """Placeholder for DataVisualizer."""
+    pass
