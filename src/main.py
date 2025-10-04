@@ -47,5 +47,12 @@ problem.run()
 print("Displaying results...")
 problem.display_results()
 
+#print dual variables for all constrains
+
+print("Dual Variables for constraints:")
+for t in range(problem.T):
+    constr = problem.pv_production_constraints[t]
+    print(f"Time {t}: PV Production Dual = {constr.Pi}")
+
 
 

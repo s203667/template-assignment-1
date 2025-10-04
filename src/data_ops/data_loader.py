@@ -66,7 +66,9 @@ class DataLoader:
         self.max_export = self.bus_params[0]['max_export_kW']
         self.pv_hourly_ratio = self.DER_production[0]['hourly_profile_ratio']
         self.daily_load = self.usage_preference[0]['load_preferences'][0]['min_total_energy_per_day_hour_equivalent']
-        
+        self.TOU_radius = self.bus_params[0]['import_tariff_time_of_use_radius']
+        self.TOU_N1 = self.bus_params[0]['import_tariff_time_of_use_N1']
+        self.TOU_bornholm = self.bus_params[0]['import_tariff_time_of_use_treforbornholm']
         
     
     

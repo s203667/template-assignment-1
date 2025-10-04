@@ -42,6 +42,9 @@ class OptModel():
         self.max_export = data_loader.max_export
         self.pv_hourly_ratio = data_loader.pv_hourly_ratio
         self.daily_load = data_loader.daily_load
+        self.TOU_import_tariff_Radius = data_loader.TOU_radius
+        self.TOU_import_tariff_N1 = data_loader.TOU_N1
+        self.TOU_import_tariff_Bornholm = data_loader.TOU_bornholm
         
         self._build_model() # build gurobi model
     
@@ -84,13 +87,15 @@ class OptModel():
             gp.quicksum(self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] for t in range(self.T)) >= self.daily_load * self.max_power_load,
             name='daily_load'
         )
-        # 3. PV production constraints: P_PV_prod_t = pv_capacity * pv_ratio_t
+        # 3. PV production constraints: P_PV_prod_t <= pv_capacity * pv_ratio_t, remember that lb =0 in var def of P_PV_prod
         self.pv_production_constraints = {}
         for t in range(self.T):
             self.pv_production_constraints[t] = self.model.addLConstr(
-                self.P_PV_prod[t] == self.pv_capacity * self.pv_hourly_ratio[t],
-                name=f'pv_production_{t}'
+                self.P_PV_prod[t] <= self.pv_capacity * self.pv_hourly_ratio[t],
+                name=f'pv_production_upper{t}'
             )
+
+            
         
         # 4. Import capacity constraints: P_imp_t <= max_import
         self.import_limit_constraints = {}
@@ -120,7 +125,7 @@ class OptModel():
     def _build_objective_function(self):
         # Objective: Minimize total cost = sum(P_imp_t * (energy_price + import_tariff))
         objective = gp.quicksum(
-            self.P_imp[t] * (self.energy_prices[t] + self.import_tariff)
+            self.P_imp[t] * (self.energy_prices[t] + self.TOU_import_tariff_Radius[t])
             for t in range(self.T)
         )
         self.model.setObjective(objective, GRB.MINIMIZE)
