@@ -56,3 +56,8 @@ for t in range(problem.T):
 
 
 
+from data_ops.data_visualizer import DataVisualizer
+
+# Run complete analysis
+visualizer = DataVisualizer()
+visualizer.run_complete_analysis()

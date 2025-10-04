@@ -27,7 +27,7 @@ class Expando(object):
 
 class OptModel():
 
-    def __init__(self): # initialize class
+    def __init__(self, tariff_scenario = 'TOU_import_tariff_Radius'): # initialize class
         #self.data = input_data # define data attributes
         self.results = Expando() # define results attributes
         # Load data once and store as instance attributes
@@ -45,6 +45,19 @@ class OptModel():
         self.TOU_import_tariff_Radius = data_loader.TOU_radius
         self.TOU_import_tariff_N1 = data_loader.TOU_N1
         self.TOU_import_tariff_Bornholm = data_loader.TOU_bornholm
+
+        if tariff_scenario == 'import_tariff':
+            self.active_tariff = [self.import_tariff] * 24  # Flat rate: [0.5, 0.5, 0.5, ...]
+        elif tariff_scenario == 'TOU_import_tariff_Radius':
+            self.active_tariff = self.TOU_import_tariff_Radius
+        elif tariff_scenario == 'TOU_import_tariff_N1':
+            self.active_tariff = self.TOU_import_tariff_N1
+        elif tariff_scenario == 'TOU_import_tariff_Bornholm':
+            self.active_tariff = self.TOU_import_tariff_Bornholm
+        else:
+            self.active_tariff = self.TOU_import_tariff_Radius  # Default
+
+
         
         self._build_model() # build gurobi model
     
@@ -125,7 +138,7 @@ class OptModel():
     def _build_objective_function(self):
         # Objective: Minimize total cost = sum(P_imp_t * (energy_price + import_tariff))
         objective = gp.quicksum(
-            self.P_imp[t] * (self.energy_prices[t] + self.TOU_import_tariff_Radius[t])
+            self.P_imp[t] * (self.energy_prices[t] + self.active_tariff[t])
             for t in range(self.T)
         )
         self.model.setObjective(objective, GRB.MINIMIZE)
