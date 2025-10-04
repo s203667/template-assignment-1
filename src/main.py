@@ -13,34 +13,39 @@ import sys
 import os
 from pathlib import Path
 
+from gurobipy import GRB
+
 # Add the src directory to Python path
 src_path = Path(__file__).parent
 sys.path.insert(0, str(src_path))
 
 from data_ops.data_loader import DataLoader
+from opt_model.opt_model import OptModel
 
 
-data = DataLoader('../data')
+#data = DataLoader('../data')
 
 #########################
 # Question 1a
 #########################
 
-app_data1a = data._load_data_file('question_1a', 'appliance_params.json')
-# First, let's see what's actually in the dictionary
+"""OPF_model = OPF_OptimizationProblem(OPF_input_data)
+    
+OPF_model.run()
 
-print(app_data1a['DER'][0]['max_power_kW'])
+OPF_model.display_results()"""
 
-"""
-# This corresponds to the main function
-input_data = InputData(
-    VARIABLES = ['x1', 'x2'],
-    objective_coeff = {'x1': 30, 'x2': 20},
-    constraints_coeff = {'x1': [0.6, 0.4], 'x2': [0.2, 0.8]},
-    constraints_rhs = [60, 100],
-    constraints_sense =  [GRB.GREATER_EQUAL, GRB.GREATER_EQUAL],
-)
-problem = LP_OptimizationProblem(input_data)
+#Run optimization model from opt_model.py
+
+# Create and run the optimization model
+print("Creating optimization model...")
+problem = OptModel()  # No parameters needed!
+
+print("Running optimization...")
 problem.run()
+
+print("Displaying results...")
 problem.display_results()
-"""
+
+
+

@@ -11,6 +11,13 @@ class DataLoader:
     def __init__(self, input_path: str):
         # Convert to Path object and resolve absolute path 
         self.input_path = Path(input_path).resolve()
+        # Initialize attributes to None (good practice)
+        self.app_data1 = None
+        self.max_power_load = None
+        self.bus_params = None
+        self.consumer_params = None
+        self.DER_production = None
+        self.usage_preference = None
         
 
 
@@ -37,21 +44,51 @@ class DataLoader:
         else:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
 
-class InputData:
 
-    def __init__(
-        self, 
-        VARIABLES: list,
-        objective_coeff: list[str, int],    # Coefficients in objective function
-        constraints_coeff: list[str, int],  # Linear coefficients of constraints
-        constraints_rhs: list[str, int],    # Right hand side coefficients of constraints
-        constraints_sense: list[str, int],  # Direction of constraints
-    ):
-        self.VARIABLES = VARIABLES
-        self.objective_coeff = objective_coeff
-        self.constraints_coeff = constraints_coeff
-        self.constraints_rhs = constraints_rhs
-        self.constraints_sense = constraints_sense
+    def _load_data(self):
+        """
+        Load all required data files and store them as class attributes.
+        """
+        # Example for question 1a
+        self.app_data1 = self._load_data_file('question_1a', 'appliance_params.json')
+        # Add more data loading as needed for other questions
+        self.bus_params = self._load_data_file('question_1a', 'bus_params.json')
+        self.consumer_params = self._load_data_file('question_1a', 'consumer_params.json')
+        self.DER_production = self._load_data_file('question_1a', 'DER_production.json')
+        self.usage_preference = self._load_data_file('question_1a', 'usage_preference.json')
 
+        self.max_power_load = self.app_data1['load'][0]['max_load_kWh_per_hour'] 
+        self.pv_max_power = self.app_data1['DER'][0]['max_power_kW']
+        self.energy_prices = self.bus_params[0]['energy_price_DKK_per_kWh']
+        self.import_tariff = self.bus_params[0]['import_tariff_DKK/kWh']
+        self.export_tariff = self.bus_params[0]['export_tariff_DKK/kWh']
+        self.max_import = self.bus_params[0]['max_import_kW']
+        self.max_export = self.bus_params[0]['max_export_kW']
+        self.pv_hourly_ratio = self.DER_production[0]['hourly_profile_ratio']
+        self.daily_load = self.usage_preference[0]['load_preferences'][0]['min_total_energy_per_day_hour_equivalent']
+        
+        
+    
+    
+
+
+# Test the DataLoader
+if __name__ == "__main__":
+    # Test loading
+    data_loader = DataLoader('../../data')  # Changed from '../data' to '../../data'
+    data_loader._load_data()
+    
+    print(f"Max power load: {data_loader.max_power_load}")
+    print(f"daily load: {data_loader.daily_load}")
+    #print(f"PV max power: {data_loader.pv_max_power}")
+    #print(f"Energy prices (first 5): {data_loader.energy_prices[:5]}")
+#Call energy_prices from _load_data
+#DataLoader._load_data()
+
+
+
+#print(self.app_data1['DER'][0]['max_power_kW'])
+#energy_prices = self.bus_params[0]['max_import_kW']
+#print(energy_prices)
 
 
