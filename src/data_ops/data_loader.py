@@ -66,10 +66,30 @@ class DataLoader:
         self.pv_hourly_ratio = self.DER_production[0]['hourly_profile_ratio']
         self.daily_load = self.usage_preference[0]['load_preferences'][0]['min_total_energy_per_day_hour_equivalent']
 
+        #Tariffs for different scenarios
         self.TOU_radius = self.bus_params[0]['import_tariff_time_of_use_radius']
         self.TOU_N1 = self.bus_params[0]['import_tariff_time_of_use_N1']
         self.TOU_bornholm = self.bus_params[0]['import_tariff_time_of_use_treforbornholm']
+
         
+        self.storage_capacity = self.app_data1['storage'][0]['storage_capacity_kWh']
+        self.max_charging_power = self.storage_capacity * self.app_data1['storage'][0]['max_charging_power_ratio']
+        self.max_discharging_power = self.storage_capacity * self.app_data1['storage'][0]['max_discharging_power_ratio']
+        self.charging_efficiency = self.app_data1['storage'][0]['charging_efficiency']
+        self.discharging_efficiency = self.app_data1['storage'][0]['discharging_efficiency']
+        self.soc_init = self.usage_preference[0]['storage_preferences'][0]['initial_soc_ratio']
+        self.soc_final = self.usage_preference[0]['storage_preferences'][0]['final_soc_ratio']
+        """
+            self.storage_capacity = None
+            self.max_charging_power = None
+            self.max_discharging_power = None
+            self.charging_efficiency = None
+            self.discharging_efficiency = None
+            self.soc_init = None
+            self.soc_final = None
+
+        """
+
         # Load daily requirement or hourly preferences based on question
         try:
             # For Question 1a: daily energy requirement
@@ -92,9 +112,40 @@ class DataLoader:
                 
         except (KeyError, TypeError):
             self.hourly_preference = None
-    
 
+        #Battery parameters
 
+        
+        """
+        else:
+            self.storage_capacity = None
+            self.max_charging_power = None
+            self.max_discharging_power = None
+            self.charging_efficiency = None
+            self.discharging_efficiency = None
+            self.soc_init = None
+            self.soc_final = None
+        """
+
+        """self.storage_capacity = self.app_data1['storage'][0]['storage_capacity_kWh']
+        self.max_charging_power = self.storage_capacity * self.app_data1['storage'][0]['max_charging_power_ratio']
+        self.max_discharging_power = self.storage_capacity * self.app_data1['storage'][0]['max_discharging_power_ratio']
+        self.charging_efficiency = self.app_data1['storage'][0]['charging_efficiency']
+        self.discharging_efficiency = self.app_data1['storage'][0]['discharging_efficiency']
+
+        self.soc_init = self.usage_preference[0]['storage_preferences'][0]['initial_soc_ratio']
+        self.soc_final = self.usage_preference[0]['storage_preferences'][0]['final_soc_ratio']"""
+
+        """elif question == '1a' or question == '1b':
+            # For questions 1a and 1b, set battery parameters to None or default values
+            self.storage_capacity = None
+            self.max_charging_power = None
+            self.max_discharging_power = None
+            self.charging_efficiency = None
+            self.discharging_efficiency = None
+            self.soc_init = None
+            self.soc_final = None"""
+        
 # Test the DataLoader
 """
 if __name__ == "__main__":
