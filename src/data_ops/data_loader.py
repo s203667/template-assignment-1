@@ -45,17 +45,16 @@ class DataLoader:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
 
 
-    def _load_data(self):
+    def _load_data(self, question='question_1a'):
         """
         Load all required data files and store them as class attributes.
         """
-        # Example for question 1a
-        self.app_data1 = self._load_data_file('question_1a', 'appliance_params.json')
-        # Add more data loading as needed for other questions
-        self.bus_params = self._load_data_file('question_1a', 'bus_params.json')
-        self.consumer_params = self._load_data_file('question_1a', 'consumer_params.json')
-        self.DER_production = self._load_data_file('question_1a', 'DER_production.json')
-        self.usage_preference = self._load_data_file('question_1a', 'usage_preference.json')
+        # Load each data file
+        self.app_data1 = self._load_data_file(question, 'appliance_params.json')
+        self.bus_params = self._load_data_file(question, 'bus_params.json')
+        self.consumer_params = self._load_data_file(question, 'consumer_params.json')
+        self.DER_production = self._load_data_file(question, 'DER_production.json')
+        self.usage_preference = self._load_data_file(question, 'usage_preference.json')
 
         self.max_power_load = self.app_data1['load'][0]['max_load_kWh_per_hour'] 
         self.pv_max_power = self.app_data1['DER'][0]['max_power_kW']
@@ -66,11 +65,23 @@ class DataLoader:
         self.max_export = self.bus_params[0]['max_export_kW']
         self.pv_hourly_ratio = self.DER_production[0]['hourly_profile_ratio']
         self.daily_load = self.usage_preference[0]['load_preferences'][0]['min_total_energy_per_day_hour_equivalent']
+
         self.TOU_radius = self.bus_params[0]['import_tariff_time_of_use_radius']
         self.TOU_N1 = self.bus_params[0]['import_tariff_time_of_use_N1']
         self.TOU_bornholm = self.bus_params[0]['import_tariff_time_of_use_treforbornholm']
         
-    
+        # Load daily requirement or hourly preferences based on question
+        try:
+            # For Question 1a: daily energy requirement
+            self.daily_load = self.usage_preference[0]['load_preferences'][0]['min_total_energy_per_day_hour_equivalent']
+        except (KeyError, TypeError):
+            self.daily_load = None
+        
+        try:
+            # For Question 1b: hourly preference profile
+            self.hourly_preference = self.usage_preference[0]['load_preferences'][0]['hourly_profile_ratio']
+        except (KeyError, TypeError):
+            self.hourly_preference = None
     
 
 

@@ -16,7 +16,7 @@ sys.path.insert(0, str(src_dir))
 from data_ops.data_loader import DataLoader
 from gurobipy import GRB
 
-data_loader = DataLoader('../data')  # Changed from '../data' to '../../data'
+#data_loader = DataLoader('../data')  # Changed from '../data' to '../../data'
 
 class Expando(object):
     '''
@@ -27,12 +27,25 @@ class Expando(object):
 
 class OptModel():
 
-    def __init__(self, tariff_scenario = 'TOU_import_tariff_Radius'): # initialize class
+    def __init__(self, tariff_scenario = 'TOU_import_tariff_Radius', question = '1a', alpha_discomfort = 1.0): # initialize class
         #self.data = input_data # define data attributes
         self.results = Expando() # define results attributes
+        self.question = question # question 1a or 1b or 1c
+        self.alpha_discomfort = alpha_discomfort # weight of discomfort in objective function
+
         # Load data once and store as instance attributes
         self.T = 24
-        data_loader._load_data()
+
+        # Create data loader and load appropriate question data
+        data_loader = DataLoader('../data')  # Point to data folder
+    
+        if question == '1a':
+            data_loader._load_data('question_1a')  # Load from question_1a folder
+        else:  # question == '1b'
+            data_loader._load_data('question_1b')  # Load from question_1b folder
+
+
+
         self.pv_capacity = data_loader.pv_max_power
         self.max_power_load = data_loader.max_power_load
         self.energy_prices = data_loader.energy_prices
@@ -45,6 +58,13 @@ class OptModel():
         self.TOU_import_tariff_Radius = data_loader.TOU_radius
         self.TOU_import_tariff_N1 = data_loader.TOU_N1
         self.TOU_import_tariff_Bornholm = data_loader.TOU_bornholm
+
+        # Load daily load requirement (different for 1a vs 1b)
+        if question == '1a':
+            self.daily_load = data_loader.daily_load  # Required daily energy
+        else:  # question == '1b'
+            self.daily_load = None  # No daily requirement
+            self.hourly_preference = data_loader.hourly_preference  # Load preference profile
 
         if tariff_scenario == 'import_tariff':
             self.active_tariff = [self.import_tariff] * 24  # Flat rate: [0.5, 0.5, 0.5, ...]
@@ -69,86 +89,149 @@ class OptModel():
         self.P_exp = {t: self.model.addVar(lb=0, name=f'P_exp_{t}') for t in range(self.T)}
         self.P_PV_prod = {t: self.model.addVar(lb=0, name=f'P_PV_prod_{t}') for t in range(self.T)}
         
+        # For question 1b, create D_hour and discomfort auxiliary variables
+        if self.question == '1b':
+            self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
+        
+        # Add auxiliary variables for absolute value in discomfort calculation
+        self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
+        self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
+    
+
         # Store all variables in a single dictionary for compatibility
         self.variables = {}
         self.variables.update({f'P_imp_{t}': self.P_imp[t] for t in range(self.T)})
         self.variables.update({f'P_exp_{t}': self.P_exp[t] for t in range(self.T)})
         self.variables.update({f'P_PV_prod_{t}': self.P_PV_prod[t] for t in range(self.T)})
 
-    def _build_constraints(self):
+        if self.question == '1b':
+            self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
 
-       # 1. Energy balance constraints: P_PV_prod_t + P_imp_t - P_exp_t = D_hour_t
-        # where D_hour_t is limited to max_power_load (3 kW)
+    def _build_constraints(self):
+        if self.question == '1a':
+        # Original Question 1a constraints
+            self._build_constraints_1a()
+        else:  # question == '1b'
+        # New Question 1b constraints
+            self._build_constraints_1b()
+
+    def _build_constraints_1a(self):
+        """Original constraints for Question 1a"""
+        # Energy balance constraints: P_PV_prod_t + P_imp_t - P_exp_t = D_hour_t (implicit)
         self.energy_balance_constraints = {}
         for t in range(self.T):
-            # D_hour_t is constrained between 0 and max_power_load
-            # Energy balance: P_PV_prod_t + P_imp_t - P_exp_t <= max_power_load
             self.energy_balance_constraints[f'upper_{t}'] = self.model.addLConstr(
                 self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] <= self.max_power_load,
                 name=f'energy_balance_upper_{t}'
             )
-            # And: P_PV_prod_t + P_imp_t - P_exp_t >= 0 (non-negative demand)
             self.energy_balance_constraints[f'lower_{t}'] = self.model.addLConstr(
                 self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] >= 0,
                 name=f'energy_balance_lower_{t}'
             )
 
-        # 2. Daily demand constraint: sum(D_hour_t) >= D_daily
-        # Since D_hour_t = P_PV_prod_t + P_imp_t - P_exp_t, this becomes:
-        # sum(P_PV_prod_t + P_imp_t - P_exp_t) >= D_daily
+        # Daily demand constraint
         self.daily_demand_constraint = self.model.addLConstr(
-            gp.quicksum(self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] for t in range(self.T)) >= self.daily_load * self.max_power_load,
+            gp.quicksum(self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] for t in range(self.T)) >= self.daily_load,
             name='daily_load'
         )
-        # 3. PV production constraints: P_PV_prod_t <= pv_capacity * pv_ratio_t, remember that lb =0 in var def of P_PV_prod
-        self.pv_production_constraints = {}
+        
+        # PV, import, export constraints (same as before)
+        self._build_common_constraints()
+
+    def _build_constraints_1b(self):
+        """New constraints for Question 1b"""
+        # 1. Energy balance: D_hour_t = P_PV_prod_t + P_imp_t - P_exp_t
+        self.energy_balance_constraints = {}
         for t in range(self.T):
-            self.pv_production_constraints[t] = self.model.addLConstr(
-                self.P_PV_prod[t] <= self.pv_capacity * self.pv_hourly_ratio[t],
-                name=f'pv_production_upper{t}'
+            self.energy_balance_constraints[t] = self.model.addLConstr(
+                self.D_hour[t] == self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t],
+                name=f'energy_balance_{t}'
             )
 
+        # 2. Discomfort calculation: |D_hour_t - preferred_t|
+        # We model this using: discomfort_pos_t - discomfort_neg_t = D_hour_t - preferred_t
+        self.discomfort_constraints = {}
+        for t in range(self.T):
+            preferred_demand_t = self.hourly_preference[t] * self.max_power_load  # Scale preference
             
-        
-        # 4. Import capacity constraints: P_imp_t <= max_import
-        self.import_limit_constraints = {}
-        for t in range(self.T):
-            self.import_limit_constraints[t] = self.model.addLConstr(
-                self.P_imp[t] <= self.max_import,
-                name=f'import_limit_{t}'
+            self.discomfort_constraints[t] = self.model.addLConstr(
+                self.discomfort_pos[t] - self.discomfort_neg[t] == self.D_hour[t] - preferred_demand_t,
+                name=f'discomfort_{t}'
             )
-        
-        # 5. Export capacity constraints: P_exp_t <= max_export
-        self.export_limit_constraints = {}
-        for t in range(self.T):
-            self.export_limit_constraints[t] = self.model.addLConstr(
-                self.P_exp[t] <= self.max_export,
-                name=f'export_limit_{t}'
-            )
-        
-        # Store all constraints in a list for compatibility
-        self.constraints = []
-        self.constraints.extend(list(self.energy_balance_constraints.values()))
-        self.constraints.append(self.daily_demand_constraint)
-        self.constraints.extend(list(self.pv_production_constraints.values()))
-        self.constraints.extend(list(self.import_limit_constraints.values()))
-        self.constraints.extend(list(self.export_limit_constraints.values()))
+
+        # 3. Common constraints (PV, import, export limits)
+        self._build_common_constraints()
+
+    def _build_common_constraints(self):
+            """Constraints common to all questions"""
+            #PV production constraints: P_PV_prod_t <= pv_capacity * pv_ratio_t, remember that lb =0 in var def of P_PV_prod
+            self.pv_production_constraints = {}
+            for t in range(self.T):
+                self.pv_production_constraints[t] = self.model.addLConstr(
+                    self.P_PV_prod[t] <= self.pv_capacity * self.pv_hourly_ratio[t],
+                    name=f'pv_production_upper{t}'
+                )
+
+                
+            
+            # 4. Import capacity constraints: P_imp_t <= max_import
+            self.import_limit_constraints = {}
+            for t in range(self.T):
+                self.import_limit_constraints[t] = self.model.addLConstr(
+                    self.P_imp[t] <= self.max_import,
+                    name=f'import_limit_{t}'
+                )
+            
+            # 5. Export capacity constraints: P_exp_t <= max_export
+            self.export_limit_constraints = {}
+            for t in range(self.T):
+                self.export_limit_constraints[t] = self.model.addLConstr(
+                    self.P_exp[t] <= self.max_export,
+                    name=f'export_limit_{t}'
+                )
+            
+            # Store all constraints in a list for compatibility
+            self.constraints = []
+            self.constraints.extend(list(self.energy_balance_constraints.values()))
+            if hasattr(self, 'daily_demand_constraint'):
+                self.constraints.append(self.daily_demand_constraint)
+            if hasattr(self, 'discomfort_constraints'):
+                self.constraints.extend(list(self.discomfort_constraints.values()))
+            self.constraints.extend(list(self.pv_production_constraints.values()))
+            self.constraints.extend(list(self.import_limit_constraints.values()))
+            self.constraints.extend(list(self.export_limit_constraints.values()))
 
 
     def _build_objective_function(self):
-        # Objective: Minimize total cost = sum(P_imp_t * (energy_price + import_tariff))
-        objective = gp.quicksum(
-            self.P_imp[t] * (self.energy_prices[t] + self.active_tariff[t])
-            for t in range(self.T)
-        )
+        if self.question == '1a':
+            # Objective: Minimize total cost = sum(P_imp_t * (energy_price + import_tariff))
+            objective = gp.quicksum(
+                self.P_imp[t] * (self.energy_prices[t] + self.active_tariff[t])
+                for t in range(self.T)
+            )
+        else:  # question == '1b'
+        # New objective: minimize import costs + discomfort penalty
+            import_cost = gp.quicksum(
+                self.P_imp[t] * (self.energy_prices[t] + self.active_tariff[t])
+                for t in range(self.T)
+            )
+            
+            # Discomfort penalty (quadratic approximation using linear terms)
+            discomfort_penalty = gp.quicksum(
+                self.alpha_discomfort * (self.discomfort_pos[t] + self.discomfort_neg[t])
+                for t in range(self.T)
+            )
+        
+            objective = import_cost + discomfort_penalty
+
         self.model.setObjective(objective, GRB.MINIMIZE)
- 
+
 
     def _build_model(self):
         self.model = gp.Model(name='Minimize energy procurement')
         self._build_variables()
-        self._build_objective_function()
         self._build_constraints()
+        self._build_objective_function()
         self.model.update()
 
     def _save_results(self):
@@ -160,15 +243,22 @@ class OptModel():
         self.results.P_exp = {t: self.P_exp[t].x for t in range(self.T)}
         self.results.P_PV_prod = {t: self.P_PV_prod[t].x for t in range(self.T)}
         
-        # Calculate D_hour from energy balance (as auxiliary values)
-        self.results.D_hour = {t: self.results.P_PV_prod[t] + self.results.P_imp[t] - self.results.P_exp[t] 
-                              for t in range(self.T)}
-        
-        # Store in original format for compatibility
-        self.results.variables = {}
-        self.results.variables.update({f'P_imp_{t}': self.P_imp[t].x for t in range(self.T)})
-        self.results.variables.update({f'P_exp_{t}': self.P_exp[t].x for t in range(self.T)})
-        self.results.variables.update({f'P_PV_prod_{t}': self.P_PV_prod[t].x for t in range(self.T)})
+        if self.question == '1a':
+            # Calculate D_hour from energy balance
+            self.results.D_hour = {t: self.results.P_PV_prod[t] + self.results.P_imp[t] - self.results.P_exp[t] 
+                                for t in range(self.T)}
+        else:  # question == '1b'
+            # D_hour is a decision variable
+            self.results.D_hour = {t: self.D_hour[t].x for t in range(self.T)}
+            
+            # Calculate discomfort metrics
+            self.results.discomfort_pos = {t: self.discomfort_pos[t].x for t in range(self.T)}
+            self.results.discomfort_neg = {t: self.discomfort_neg[t].x for t in range(self.T)}
+            
+            # Calculate total discomfort
+            total_discomfort = sum(self.results.discomfort_pos[t] + self.results.discomfort_neg[t] 
+                                for t in range(self.T))
+            self.results.total_discomfort = total_discomfort
 
         # Save dual values
         self.results.duals = [const.Pi for const in self.constraints]
