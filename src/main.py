@@ -57,39 +57,14 @@ for t in range(problem.T):
 
 from opt_model.opt_model import OptModel  # Only import what you need
 
-print("="*60)
-print("QUESTION 1B: DISCOMFORT ANALYSIS")
-print("="*60)
+model_1b = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='1a', alpha_discomfort=2, consumer_type='nocturnal')
+model_1b.run()
+model_1b.display_results()
 
-# Question 1b with different discomfort weights
-print("\n1. Low Discomfort Weight (α = 0.1) - Focus on Cost")
-print("-" * 50)
-model_1b_low = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='1b', alpha_discomfort=0.1)
-model_1b_low.run()
-model_1b_low.display_results()
+#from data_ops.data_visualizer import DataVisualizer
 
-print("\n2. Medium Discomfort Weight (α = 1.0) - Balanced")
-print("-" * 50)
-model_1b_med = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='1b', alpha_discomfort=1.0)  
-model_1b_med.run()
-model_1b_med.display_results()
+# Run complete consumer flexibility analysis
 
-print("\n3. High Discomfort Weight (α = 10.0) - Focus on Comfort")
-print("-" * 50)
-model_1b_high = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='1b', alpha_discomfort=10.0)
-model_1b_high.run()
-model_1b_high.display_results()
-
-# Summary comparison
-print("\n" + "="*60)
-print("SUMMARY COMPARISON")
-print("="*60)
-print(f"Low Weight (α=0.1):   Cost = {model_1b_low.results.objective_value:.2f} DKK")
-print(f"Medium Weight (α=1.0): Cost = {model_1b_med.results.objective_value:.2f} DKK") 
-print(f"High Weight (α=10.0):  Cost = {model_1b_high.results.objective_value:.2f} DKK")
-
-print("\nInsight: Higher α → Lower discomfort but higher costs")
-print("         Lower α → Higher discomfort but lower costs")
 
 #from data_ops.data_visualizer import DataVisualizer
 

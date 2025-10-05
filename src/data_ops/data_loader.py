@@ -45,7 +45,7 @@ class DataLoader:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
 
 
-    def _load_data(self, question='question_1a'):
+    def _load_data(self, question: str, consumer_type: str):
         """
         Load all required data files and store them as class attributes.
         """
@@ -78,14 +78,25 @@ class DataLoader:
             self.daily_load = None
         
         try:
-            # For Question 1b: hourly preference profile
-            self.hourly_preference = self.usage_preference[0]['load_preferences'][0]['hourly_profile_ratio']
+            load_prefs = self.usage_preference[0]['load_preferences'][0]
+            
+            if consumer_type == 'original':
+                self.hourly_preference = load_prefs['hourly_profile_ratio']
+            elif consumer_type == 'nocturnal':
+                self.hourly_preference = load_prefs['hourly_profile_ratio_nocturnal']
+            elif consumer_type == 'family':
+                self.hourly_preference = load_prefs['hourly_profile_ratio_family']
+            else:
+                print(f"Warning: Unknown consumer type '{consumer_type}', using original")
+                self.hourly_preference = load_prefs['hourly_profile_ratio']
+                
         except (KeyError, TypeError):
             self.hourly_preference = None
     
 
 
 # Test the DataLoader
+"""
 if __name__ == "__main__":
     # Test loading
     data_loader = DataLoader('../../data')  # Changed from '../data' to '../../data'
@@ -95,6 +106,7 @@ if __name__ == "__main__":
     print(f"daily load: {data_loader.daily_load}")
     #print(f"PV max power: {data_loader.pv_max_power}")
     #print(f"Energy prices (first 5): {data_loader.energy_prices[:5]}")
+    """
 #Call energy_prices from _load_data
 #DataLoader._load_data()
 

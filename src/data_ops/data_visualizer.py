@@ -34,7 +34,7 @@ class DataVisualizer:
             print(f"  - {scenario_name}")
 
             # Create and run model for this scenario
-            model = OptModel(tariff_scenario=tariff_key)
+            model = OptModel(tariff_scenario=tariff_key, question='1a', alpha_discomfort=2, consumer_type='original')
             model.run()
 
             # Store key results

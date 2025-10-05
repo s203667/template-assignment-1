@@ -27,11 +27,12 @@ class Expando(object):
 
 class OptModel():
 
-    def __init__(self, tariff_scenario = 'TOU_import_tariff_Radius', question = '1a', alpha_discomfort = 1.0): # initialize class
+    def __init__(self, tariff_scenario: str, question: str, alpha_discomfort: float, consumer_type: str): # initialize class
         #self.data = input_data # define data attributes
         self.results = Expando() # define results attributes
         self.question = question # question 1a or 1b or 1c
         self.alpha_discomfort = alpha_discomfort # weight of discomfort in objective function
+        self.consumer_type = consumer_type # type of consumer (original, flexible, etc.)
 
         # Load data once and store as instance attributes
         self.T = 24
@@ -40,9 +41,9 @@ class OptModel():
         data_loader = DataLoader('../data')  # Point to data folder
     
         if question == '1a':
-            data_loader._load_data('question_1a')  # Load from question_1a folder
+            data_loader._load_data('question_1a', consumer_type)  # Load from question_1a folder
         else:  # question == '1b'
-            data_loader._load_data('question_1b')  # Load from question_1b folder
+            data_loader._load_data('question_1b', consumer_type)  # Load from question_1b folder
 
 
 
@@ -92,11 +93,10 @@ class OptModel():
         # For question 1b, create D_hour and discomfort auxiliary variables
         if self.question == '1b':
             self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
+            # Add auxiliary variables for absolute value in discomfort calculation
+            self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
+            self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
         
-        # Add auxiliary variables for absolute value in discomfort calculation
-        self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
-        self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
-    
 
         # Store all variables in a single dictionary for compatibility
         self.variables = {}
@@ -131,7 +131,7 @@ class OptModel():
 
         # Daily demand constraint
         self.daily_demand_constraint = self.model.addLConstr(
-            gp.quicksum(self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] for t in range(self.T)) >= self.daily_load,
+            gp.quicksum(self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] for t in range(self.T)) >= self.daily_load * self.max_power_load,
             name='daily_load'
         )
         
@@ -290,6 +290,23 @@ class OptModel():
         print("\nHourly Demand (Calculated from energy balance) (kW):")
         for t, value in self.results.D_hour.items():
             print(f"  Hour {t:2d}: {value:.4f}")
+
+        if self.question == '1b':
+            print("\nHourly Discomfort Positive Deviation (kW):")
+            for t, value in self.results.discomfort_pos.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+            
+            print("\nHourly Discomfort Negative Deviation (kW):")
+            for t, value in self.results.discomfort_neg.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+            
+            print(f"\nTotal Discomfort: {self.results.total_discomfort:.4f} kW")
+            #print preferred demand
+            print("\nPreferred Hourly Demand (kW):")
+            for t in range(self.T):
+                preferred_demand_t = self.hourly_preference[t] * self.max_power_load
+                print(f"  Hour {t:2d}: {preferred_demand_t:.4f}")
+
         
         print(f"\nTotal daily demand: {sum(self.results.D_hour.values()):.4f} kWh")
         print("--------------------------------------------------")
