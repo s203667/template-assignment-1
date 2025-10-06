@@ -57,12 +57,30 @@ for t in range(problem.T):
 
 from opt_model.opt_model import OptModel  # Only import what you need
 
-model_1c = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='2b', alpha_discomfort=2, consumer_type='original')
-model_1c.run()
-model_1c.display_results()
+model_1a = OptModel(tariff_scenario='import_tariff', question='1a', alpha_discomfort=2, consumer_type='original')
+model_1a.run()
+model_1a.display_results()
 
-#from data_ops.data_visualizer import DataVisualizer
+# Create visualizer and plot results
+from data_ops.data_visualizer import DataVisualizer
+print("\nCreating visualization...")
+visualizer = DataVisualizer(model_1a)
+fig = visualizer.plot_question_1a_results()
 
+# Save and show plot
+#visualizer.save_plot(fig, 'question_1a_results.png')
+visualizer.show_plot()
+
+# Create stacked comparison plots
+print("\nCreating stacked comparison plots...")
+
+
+# Option 2: Optimized stacked plot (runs optimization for each scenario)
+fig_optimized = visualizer.plot_optimized_stacked_comparison() 
+#visualizer.save_plot(fig_optimized, 'optimized_stacked_comparison.png')
+
+# Show both plots
+visualizer.show_plot()
 # Run complete consumer flexibility analysis
 
 
