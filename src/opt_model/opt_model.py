@@ -612,7 +612,7 @@ class OptModel():
             # Compute actual capital cost in DKK
             battery_unit_price = 30000  # DKK for full base battery (self.storage_capacity)
             capital_cost_DKK = self.results.battery_scalar * battery_unit_price
-            print(f"Battery Capital Cost (DKK): {capital_cost_DKK:.2f}")
+            print(f"Battery Capital Cost (DKK)(remember to change manually): {capital_cost_DKK:.2f}")
 
             # Optional: daily contribution if annualized over 10 years
             capital_cost_daily = capital_cost_DKK / (10*365)
