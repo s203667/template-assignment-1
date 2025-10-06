@@ -71,7 +71,7 @@ class DataLoader:
         self.TOU_N1 = self.bus_params[0]['import_tariff_time_of_use_N1']
         self.TOU_bornholm = self.bus_params[0]['import_tariff_time_of_use_treforbornholm']
 
-        if question in ('1c', 'question_1c'):
+        if question in ('1c', 'question_1c', '2b', 'question_2b'):
             self.storage_capacity = self.app_data1['storage'][0]['storage_capacity_kWh']
             self.max_charging_power = self.storage_capacity * self.app_data1['storage'][0]['max_charging_power_ratio']
             self.max_discharging_power = self.storage_capacity * self.app_data1['storage'][0]['max_discharging_power_ratio']
@@ -87,6 +87,7 @@ class DataLoader:
             self.discharging_efficiency = None
             self.soc_init = None
             self.soc_final = None
+        
 
         
 

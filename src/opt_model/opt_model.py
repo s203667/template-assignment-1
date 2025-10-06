@@ -44,8 +44,9 @@ class OptModel():
             data_loader._load_data('question_1a', consumer_type)  # Load from question_1a folder
         elif question == '1b':  # question == '1b'
             data_loader._load_data('question_1b', consumer_type)  # Load from question_1b folder
-        else:  # question == '1c'
+        else:  # question == '1c' or '2b'
             data_loader._load_data('question_1c', consumer_type)  # Load from question_1c folder
+
 
 
 
@@ -80,17 +81,7 @@ class OptModel():
             self.discharging_efficiency = data_loader.discharging_efficiency
             self.soc_init = data_loader.soc_init
             self.soc_final = data_loader.soc_final
-
-        """
-            elif question == '1a' or question == '1b':
-            self.storage_capacity = None
-            self.max_charging_power = None
-            self.max_discharging_power = None
-            self.charging_efficiency = None
-            self.discharging_efficiency = None
-            self.soc_init = None
-            self.soc_final = None
-"""
+            
         
 
         # Load daily load requirement (different for 1a vs 1b)
@@ -103,6 +94,8 @@ class OptModel():
 
         if tariff_scenario == 'import_tariff':
             self.active_tariff = [self.import_tariff] * 24  # Flat rate: [0.5, 0.5, 0.5, ...]
+        elif tariff_scenario == 'export_tariff':
+            self.active_tariff = [self.export_tariff] * 24  # Flat rate: [0.4, 0.4, 0.4, ...]
         elif tariff_scenario == 'TOU_import_tariff_Radius':
             self.active_tariff = self.TOU_import_tariff_Radius
         elif tariff_scenario == 'TOU_import_tariff_N1':
@@ -141,9 +134,23 @@ class OptModel():
             self.P_discharge = {t: self.model.addVar(lb=0, ub=self.max_discharging_power, name=f'P_discharge_{t}') for t in range(self.T)}
             self.SOC = {t: self.model.addVar(lb=0, ub=self.storage_capacity, name=f'SOC_{t}') for t in range(self.T)}
 
+        elif self.question == '2b':
+            self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
+            # Add auxiliary variables for absolute value in discomfort calculation
+            self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
+            self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
+            # Battery variables
+            self.P_charge = {t: self.model.addVar(lb=0, ub=self.max_charging_power, name=f'P_charge_{t}') for t in range(self.T)}
+            self.P_discharge = {t: self.model.addVar(lb=0, ub=self.max_discharging_power, name=f'P_discharge_{t}') for t in range(self.T)}
+            self.SOC = {t: self.model.addVar(lb=0, name=f'SOC_{t}') for t in range(self.T)}
+            #Variables for question 2b (investment variables)
+            self.battery_capital_cost = self.model.addVar(lb=0, name='battery_capital_cost')
+            self.battery_scalar = self.model.addVar(lb=0, name='battery_scalar')
+
+            
         # Store all variables in a single dictionary for compatibility
         self.variables = {}
-        self.variables.update({f'P_imp_{t}': self.P_imp[t] for t in range(self.T)})
+        self.variables.update({f'P_imp_{t}': self.P_imp[t] for t in range(self.T)}) 
         self.variables.update({f'P_exp_{t}': self.P_exp[t] for t in range(self.T)})
         self.variables.update({f'P_PV_prod_{t}': self.P_PV_prod[t] for t in range(self.T)})
 
@@ -155,7 +162,15 @@ class OptModel():
             self.variables.update({f'P_charge_{t}': self.P_charge[t] for t in range(self.T)})
             self.variables.update({f'P_discharge_{t}': self.P_discharge[t] for t in range(self.T)})
             self.variables.update({f'SOC_{t}': self.SOC[t] for t in range(self.T)})
-            
+        
+        elif self.question == '2b':
+            self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
+            self.variables.update({f'P_charge_{t}': self.P_charge[t] for t in range(self.T)})
+            self.variables.update({f'P_discharge_{t}': self.P_discharge[t] for t in range(self.T)})
+            self.variables.update({f'SOC_{t}': self.SOC[t] for t in range(self.T)})
+            self.variables['battery_capital_cost'] = self.battery_capital_cost
+            self.variables['battery_scalar'] = self.battery_scalar
+        
 
     def _build_constraints(self):
         if self.question == '1a':
@@ -164,8 +179,10 @@ class OptModel():
         elif self.question == '1b':
         # New Question 1b constraints
             self._build_constraints_1b()
-        else:  # question == '1c'
+        elif self.question == '1c':
             self._build_constraints_1c()  # Start with 1b constraints
+        elif self.question == '2b':
+            self._build_constraints_2b()  # Start with 1c constraints
 
 
     def _build_constraints_1a(self):
@@ -257,46 +274,117 @@ class OptModel():
                 # 3. Common constraints (PV, import, export limits)
         self._build_common_constraints()
 
-    def _build_common_constraints(self):
-            """Constraints common to all questions"""
-            #PV production constraints: P_PV_prod_t <= pv_capacity * pv_ratio_t, remember that lb =0 in var def of P_PV_prod
-            self.pv_production_constraints = {}
-            for t in range(self.T):
-                self.pv_production_constraints[t] = self.model.addLConstr(
-                    self.P_PV_prod[t] <= self.pv_capacity * self.pv_hourly_ratio[t],
-                    name=f'pv_production_upper{t}'
-                )
+    def _build_constraints_2b(self):
+        """New constraints for Question 1c"""
+        # 1. Energy balance: D_hour_t = P_PV_prod_t + P_imp_t - P_exp_t + P_discharge_t - P_charge_t
+        self.energy_balance_constraints = {}
+        for t in range(self.T):
+            self.energy_balance_constraints[t] = self.model.addLConstr(
+                self.D_hour[t] == self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] + self.P_discharge[t] - self.P_charge[t],
+                name=f'energy_balance_{t}'
+            )
 
-                
+        # 2. Discomfort calculation: |D_hour_t - preferred_t|
+        # We model this using: discomfort_pos_t - discomfort_neg_t = D_hour_t - preferred_t
+        self.discomfort_constraints = {}
+        for t in range(self.T):
+            preferred_demand_t = self.hourly_preference[t] * self.max_power_load  # Scale preference
             
-            # 4. Import capacity constraints: P_imp_t <= max_import
-            self.import_limit_constraints = {}
-            for t in range(self.T):
-                self.import_limit_constraints[t] = self.model.addLConstr(
-                    self.P_imp[t] <= self.max_import,
-                    name=f'import_limit_{t}'
-                )
-            
-            # 5. Export capacity constraints: P_exp_t <= max_export
-            self.export_limit_constraints = {}
-            for t in range(self.T):
-                self.export_limit_constraints[t] = self.model.addLConstr(
-                    self.P_exp[t] <= self.max_export,
-                    name=f'export_limit_{t}'
-                )
-            
-            # Store all constraints in a list for compatibility
-            self.constraints = []
-            self.constraints.extend(list(self.energy_balance_constraints.values()))
-            if hasattr(self, 'daily_demand_constraint'):
-                self.constraints.append(self.daily_demand_constraint)
-            if hasattr(self, 'discomfort_constraints'):
-                self.constraints.extend(list(self.discomfort_constraints.values()))
-            if hasattr(self, 'soc_constraints'):  # ADD THIS
-                self.constraints.extend(list(self.soc_constraints.values()))
-            self.constraints.extend(list(self.pv_production_constraints.values()))
-            self.constraints.extend(list(self.import_limit_constraints.values()))
-            self.constraints.extend(list(self.export_limit_constraints.values()))
+            self.discomfort_constraints[t] = self.model.addLConstr(
+                self.discomfort_pos[t] - self.discomfort_neg[t] == self.D_hour[t] - preferred_demand_t,
+                name=f'discomfort_{t}'
+            )
+        # 3. Battery SOC dynamics and constraints
+        self.soc_constraints = {}
+        
+        self.soc_constraints['init'] = self.model.addLConstr(
+                self.SOC[0] == self.soc_init * self.storage_capacity + self.P_charge[0] * self.charging_efficiency - self.P_discharge[0] / self.discharging_efficiency,
+                name='soc_initial'
+            )
+        
+        self.soc_constraints['final'] = self.model.addLConstr(
+                self.SOC[23] >= self.soc_final * self.storage_capacity,
+                name=f'soc_final'
+            )
+
+        # SOC dynamics for hours 1-23
+        for t in range(1, self.T):
+            self.soc_constraints[t] = self.model.addLConstr(
+                self.SOC[t] == self.SOC[t-1] + self.P_charge[t] * self.charging_efficiency - self.P_discharge[t] / self.discharging_efficiency,
+                name=f'soc_dynamics_{t}'
+            )
+
+        # Investment constraint: battery_capital_cost = battery_scalar * storage_capacity
+        self.investment_constraint = {}
+        self.investment_constraint['Capital_cost'] = self.model.addLConstr(
+            self.battery_capital_cost == self.battery_scalar * self.storage_capacity,
+            name='investment_constraint'
+        )
+
+        #Charge and discharge scalings with battery_scala½r
+        for t in range(self.T):
+            self.investment_constraint[f'charge_{t}'] = self.model.addLConstr(
+                self.P_charge[t] <= self.battery_scalar * self.max_charging_power,
+                name=f'charge_scaling_{t}'
+            )
+        for t in range(self.T):
+            self.investment_constraint[f'discharge_{t}'] = self.model.addLConstr(
+                self.P_discharge[t] <= self.battery_scalar * self.max_discharging_power,
+                name=f'discharge_scaling_{t}'
+            )
+        
+        # SOC scaling with battery_scalar
+        for t in range(self.T):
+            self.investment_constraint[f'soc_{t}'] = self.model.addLConstr(
+                self.SOC[t] <= self.battery_scalar * self.storage_capacity,
+                name=f'soc_scaling_{t}'
+            )
+
+        # 3. Common constraints (PV, import, export limits)
+        self._build_common_constraints()
+        
+
+    def _build_common_constraints(self):
+        """Constraints common to all questions"""
+        # PV production constraints: P_PV_prod_t <= pv_capacity * pv_ratio_t, remember that lb =0 in var def of P_PV_prod
+        self.pv_production_constraints = {}
+        for t in range(self.T):
+            self.pv_production_constraints[t] = self.model.addLConstr(
+                self.P_PV_prod[t] <= self.pv_capacity * self.pv_hourly_ratio[t],
+                name=f'pv_production_upper{t}'
+            )
+
+        # 4. Import capacity constraints: P_imp_t <= max_import
+        self.import_limit_constraints = {}
+        for t in range(self.T):
+            self.import_limit_constraints[t] = self.model.addLConstr(
+                self.P_imp[t] <= self.max_import,
+                name=f'import_limit_{t}'
+            )
+
+        # 5. Export capacity constraints: P_exp_t <= max_export
+        self.export_limit_constraints = {}
+        for t in range(self.T):
+            self.export_limit_constraints[t] = self.model.addLConstr(
+                self.P_exp[t] <= self.max_export,
+                name=f'export_limit_{t}'
+            )
+
+        # Store all constraints in a list for compatibility
+        self.constraints = []
+        self.constraints.extend(list(self.energy_balance_constraints.values()))
+        if hasattr(self, 'daily_demand_constraint'):
+            self.constraints.append(self.daily_demand_constraint)
+        if hasattr(self, 'discomfort_constraints'):
+            self.constraints.extend(list(self.discomfort_constraints.values()))
+        if hasattr(self, 'soc_constraints'):  # ADD THIS
+            self.constraints.extend(list(self.soc_constraints.values()))
+        if hasattr(self, 'investment_constraint'):  # ADD THIS
+            self.constraints.extend(list(self.investment_constraint.values()))
+        self.constraints.extend(list(self.pv_production_constraints.values()))
+        self.constraints.extend(list(self.import_limit_constraints.values()))
+        self.constraints.extend(list(self.export_limit_constraints.values()))
+
 
 
     def _build_objective_function(self):
@@ -321,7 +409,26 @@ class OptModel():
         
             objective = import_cost + discomfort_penalty
         
+        elif self.question == '2b':
+            # New objective: minimize import costs + discomfort penalty
+            import_cost = gp.quicksum(
+                self.P_imp[t] * (self.energy_prices[t] + self.active_tariff[t])
+                for t in range(self.T)
+            )
+            export_cost = gp.quicksum(
+                self.P_exp[t] * (self.energy_prices[t] + self.active_tariff[t]*0.9)
+                for t in range(self.T)
+            )
 
+            # Discomfort penalty (quadratic approximation using linear terms)
+            discomfort_penalty = gp.quicksum(
+                self.alpha_discomfort * (self.discomfort_pos[t] + self.discomfort_neg[t])
+                for t in range(self.T)
+            )
+            # Include battery capital cost
+            capital_cost = self.battery_capital_cost  * 30000 / (10*365)  # Annualized over 10 years
+
+            objective = import_cost - export_cost + discomfort_penalty + capital_cost
 
         self.model.setObjective(objective, GRB.MINIMIZE)
 
@@ -359,7 +466,7 @@ class OptModel():
                                 for t in range(self.T))
             self.results.total_discomfort = total_discomfort
 
-        else:  # question == '1c'
+        elif self.question == '1c':
             # D_hour is a decision variable
             self.results.D_hour = {t: self.D_hour[t].x for t in range(self.T)}
             
@@ -376,6 +483,26 @@ class OptModel():
             self.results.P_charge = {t: self.P_charge[t].x for t in range(self.T)}
             self.results.P_discharge = {t: self.P_discharge[t].x for t in range(self.T)}
             self.results.SOC = {t: self.SOC[t].x for t in range(self.T)}
+
+        elif self.question == '2b':
+            # D_hour is a decision variable
+            self.results.D_hour = {t: self.D_hour[t].x for t in range(self.T)}
+            
+            # Calculate discomfort metrics
+            self.results.discomfort_pos = {t: self.discomfort_pos[t].x for t in range(self.T)}
+            self.results.discomfort_neg = {t: self.discomfort_neg[t].x for t in range(self.T)}
+            
+            # Calculate total discomfort
+            total_discomfort = sum(self.results.discomfort_pos[t] + self.results.discomfort_neg[t] 
+                                for t in range(self.T))
+            self.results.total_discomfort = total_discomfort
+
+            # Save battery results
+            self.results.P_charge = {t: self.P_charge[t].x for t in range(self.T)}
+            self.results.P_discharge = {t: self.P_discharge[t].x for t in range(self.T)}
+            self.results.SOC = {t: self.SOC[t].x for t in range(self.T)}
+            self.results.battery_capital_cost = self.battery_capital_cost.x
+            self.results.battery_scalar = self.battery_scalar.x
         # Save dual values
         self.results.duals = [const.Pi for const in self.constraints]
 
@@ -450,6 +577,46 @@ class OptModel():
             print("\nHourly State of Charge (kWh):")
             for t, value in self.results.SOC.items():
                 print(f"  Hour {t:2d}: {value:.4f}")
+            
+        if self.question == '2b':
+            print("\nHourly Discomfort Positive Deviation (kW):")
+            for t, value in self.results.discomfort_pos.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+            
+            print("\nHourly Discomfort Negative Deviation (kW):")
+            for t, value in self.results.discomfort_neg.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+            
+            print(f"\nTotal Discomfort: {self.results.total_discomfort:.4f} kW")
+            #print preferred demand
+            print("\nPreferred Hourly Demand (kW):")
+            for t in range(self.T):
+                preferred_demand_t = self.hourly_preference[t] * self.max_power_load
+                print(f"  Hour {t:2d}: {preferred_demand_t:.4f}")
+
+            print("\nHourly Battery Charging Power (kW):")
+            for t, value in self.results.P_charge.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+
+            print("\nHourly Battery Discharging Power (kW):")
+            for t, value in self.results.P_discharge.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+
+            print("\nHourly State of Charge (kWh):")
+            for t, value in self.results.SOC.items():
+                print(f"  Hour {t:2d}: {value:.4f}")
+
+            print(f"\nBattery Capital Cost: {self.results.battery_capital_cost:.4f}")
+            print(f"Battery Size Scalar: {self.results.battery_scalar:.4f}")
+
+            # Compute actual capital cost in DKK
+            battery_unit_price = 30000  # DKK for full base battery (self.storage_capacity)
+            capital_cost_DKK = self.results.battery_scalar * battery_unit_price
+            print(f"Battery Capital Cost (DKK): {capital_cost_DKK:.2f}")
+
+            # Optional: daily contribution if annualized over 10 years
+            capital_cost_daily = capital_cost_DKK / (10*365)
+            print(f"Battery Capital Cost (daily, DKK): {capital_cost_daily:.2f}")
 
         
         print(f"\nTotal daily demand: {sum(self.results.D_hour.values()):.4f} kWh")

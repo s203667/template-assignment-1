@@ -57,7 +57,7 @@ for t in range(problem.T):
 
 from opt_model.opt_model import OptModel  # Only import what you need
 
-model_1c = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='1a', alpha_discomfort=2, consumer_type='original')
+model_1c = OptModel(tariff_scenario='TOU_import_tariff_Radius', question='2b', alpha_discomfort=2, consumer_type='original')
 model_1c.run()
 model_1c.display_results()
 
