@@ -71,15 +71,15 @@ class DataLoader:
         self.TOU_N1 = self.bus_params[0]['import_tariff_time_of_use_N1']
         self.TOU_bornholm = self.bus_params[0]['import_tariff_time_of_use_treforbornholm']
 
-        
-        self.storage_capacity = self.app_data1['storage'][0]['storage_capacity_kWh']
-        self.max_charging_power = self.storage_capacity * self.app_data1['storage'][0]['max_charging_power_ratio']
-        self.max_discharging_power = self.storage_capacity * self.app_data1['storage'][0]['max_discharging_power_ratio']
-        self.charging_efficiency = self.app_data1['storage'][0]['charging_efficiency']
-        self.discharging_efficiency = self.app_data1['storage'][0]['discharging_efficiency']
-        self.soc_init = self.usage_preference[0]['storage_preferences'][0]['initial_soc_ratio']
-        self.soc_final = self.usage_preference[0]['storage_preferences'][0]['final_soc_ratio']
-        """
+        if question in ('1c', 'question_1c'):
+            self.storage_capacity = self.app_data1['storage'][0]['storage_capacity_kWh']
+            self.max_charging_power = self.storage_capacity * self.app_data1['storage'][0]['max_charging_power_ratio']
+            self.max_discharging_power = self.storage_capacity * self.app_data1['storage'][0]['max_discharging_power_ratio']
+            self.charging_efficiency = self.app_data1['storage'][0]['charging_efficiency']
+            self.discharging_efficiency = self.app_data1['storage'][0]['discharging_efficiency']
+            self.soc_init = self.usage_preference[0]['storage_preferences'][0]['initial_soc_ratio']
+            self.soc_final = self.usage_preference[0]['storage_preferences'][0]['final_soc_ratio']
+        else:
             self.storage_capacity = None
             self.max_charging_power = None
             self.max_discharging_power = None
@@ -88,7 +88,7 @@ class DataLoader:
             self.soc_init = None
             self.soc_final = None
 
-        """
+        
 
         # Load daily requirement or hourly preferences based on question
         try:

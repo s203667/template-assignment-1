@@ -63,6 +63,7 @@ class OptModel():
         self.TOU_import_tariff_N1 = data_loader.TOU_N1
         self.TOU_import_tariff_Bornholm = data_loader.TOU_bornholm
         #battery
+        
         if question == '1a' or question == '1b':
             self.storage_capacity = None
             self.max_charging_power = None
