@@ -57,10 +57,14 @@ for t in range(problem.T):
 
 from opt_model.opt_model import OptModel  # Only import what you need
 from data_ops.data_visualizer import DataVisualizer
-model_1a = OptModel(tariff_scenario='import_tariff', question='1a', alpha_discomfort=2, consumer_type='original')
-model_1a.run()
-model_1a.display_results()
+model_1b = OptModel(tariff_scenario='import_tariff', question='1b', alpha_discomfort=2, consumer_type='original')
+model_1b.run()
+model_1b.display_results()
 
+"""
+################################
+#PLOTS FOR 1.a
+################################
 # Create dual variables analysis plot
 print("\nCreating dual variables analysis plot...")
 visualizer = DataVisualizer(model_1a)
@@ -73,6 +77,18 @@ fig_duals = visualizer.plot_dual_sensitivity_analysis()
 # Show plots
 visualizer.show_plot()
 
+"""
+
+
+################################
+#plots for 1b
+################################
+
+print("\nCreating alpha sensitivity analysis for Question 1b...")
+visualizer = DataVisualizer(model_1b)
+
+fig_alpha, alpha_data = visualizer.plot_alpha_sensitivity_analysis_1b()
+visualizer.show_plot()
 
 """
 # Create visualizer and plot results

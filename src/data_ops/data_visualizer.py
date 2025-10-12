@@ -254,7 +254,9 @@ class DataVisualizer:
                     'hourly_demand': hourly_demand,
                     'hourly_import': hourly_import,
                     'hourly_pv': hourly_pv,
-                    'objective_value': temp_model.results.objective_value
+                    'objective_value': temp_model.results.objective_value,
+                    'daily_demand_dual': temp_model.daily_demand_constraint.Pi if hasattr(temp_model, 'daily_demand_constraint') else 0.0
+
                 }
                 
                 # Create subplot
@@ -265,20 +267,20 @@ class DataVisualizer:
                 max_d_hour = getattr(temp_model, 'max_power_load', 5.0)
                 
                 # Plot power data on left y-axis (kW)
-                ax1.step(hours, hourly_demand, 'purple', linewidth=3, where='mid',
-                        label='Hourly Demand (D_hour)', linestyle='-')
-                ax1.step(hours, hourly_import, 'blue', linewidth=2, where='mid',
+                ax1.step(hours, hourly_demand, 'blue', linewidth=3, where='mid',
+                        label='Hourly Demand (D_hour)', linestyle=':')
+                ax1.step(hours, hourly_import, 'red', linewidth=2, where='mid',
                         label='Hourly Import', linestyle='-')
-                ax1.step(hours, hourly_pv, 'orange', linewidth=2, where='mid',
+                ax1.step(hours, hourly_pv, 'yellow', linewidth=2, where='mid',
                         label='PV Production', linestyle='-')
                 
                 # Add max D_hour limit as horizontal line
-                ax1.axhline(y=max_d_hour, color='red', linewidth=2, linestyle='--',
+                ax1.axhline(y=max_d_hour, color='turquoise', linewidth=2, linestyle='--',
                         label=f'Max D_hour Limit ({max_d_hour:.1f} kW)')
                 
                 # Plot dual variables and prices on right y-axis
                 ax2.step(hours, dual_values, 'black', linewidth=2, where='mid',
-                        label='Energy Balance Duals', linestyle=':', marker='o', markersize=4)
+                        label='Energy Balance Duals', linestyle='-')
                 ax2.step(hours, combined_prices, 'magenta', linewidth=2, where='mid',
                         label='Total Price (Energy + Tariff)', linestyle='--', marker='s', markersize=3)
                 
@@ -335,8 +337,213 @@ class DataVisualizer:
             print(f"  Price Structure:")
             print(f"    Max Total Price: {max(results['combined_prices']):.4f} DKK/kWh (Hour {results['combined_prices'].index(max(results['combined_prices']))})")
             print(f"    Min Total Price: {min(results['combined_prices']):.4f} DKK/kWh (Hour {results['combined_prices'].index(min(results['combined_prices']))})")
+            print(f"  Daily Demand Constraint Dual: {results['daily_demand_dual']:.4f}")
+        return fig, scenario_results
+
+
+
+    def plot_alpha_sensitivity_analysis_1b(self, figsize=(18, 12)):
+        """
+        Analyze how alpha_discomfort affects the trade-off between cost and comfort in Question 1b.
+        Uses data from question_1b bus_params.json
+        
+        Scenario 1: Alpha = avg(energy_price + tariff) - Equal weight to cost and comfort
+        Scenario 2: Alpha = 0.1 * alpha_base - Price matters more (low comfort penalty)
+        Scenario 3: Alpha = 10 * alpha_base - Comfort matters more (high comfort penalty)
+        """
+        from opt_model.opt_model import OptModel
+        from data_ops.data_loader import DataLoader
+        
+        # Load Question 1b data
+        data_loader_1b = DataLoader('../data')
+        data_loader_1b._load_data('question_1b', 'original')
+        
+        # Get energy prices and tariff from question_1b data
+        energy_prices_1b = data_loader_1b.energy_prices
+        import_tariff_1b = data_loader_1b.import_tariff
+        
+        # Calculate base alpha (equal weighting with 1b prices)
+        avg_total_price = sum(energy_prices_1b[t] + import_tariff_1b for t in range(24)) / 24
+        
+        alpha_scenarios = [
+            {
+                'name': 'Scenario 1: Equal Weight (Cost ≈ Comfort)',
+                'description': f'Alpha = {avg_total_price:.3f} (avg total price from 1b) - Equal cost/comfort sensitivity',
+                'alpha_value': avg_total_price
+            },
+            {
+                'name': 'Scenario 2: Price Priority', 
+                'description': f'Alpha = {avg_total_price * 0.85:.3f} - Low comfort penalty, price matters more',
+                'alpha_value': avg_total_price * 0.85
+            },
+            {
+                'name': 'Scenario 3: Comfort Priority',
+                'description': f'Alpha = {avg_total_price * 1.3:.3f} - High comfort penalty, stay close to reference',
+                'alpha_value': avg_total_price * 1.3
+            }
+        ]
+        
+        # Create subplots - 3 scenarios vertically
+        fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True)
+        fig.suptitle('Alpha Sensitivity Analysis (Question 1b): Cost vs Comfort Trade-off', 
+                    fontsize=16, fontweight='bold')
+        
+        hours = list(range(24))
+        scenario_results = {}
+        
+        for idx, scenario in enumerate(alpha_scenarios):
+            print(f"\nRunning {scenario['name']} with alpha = {scenario['alpha_value']:.3f}")
+            
+            # Create new model with specified alpha
+            temp_model = OptModel(
+                tariff_scenario='import_tariff',  # Use flat tariff from 1b
+                question='1b',
+                alpha_discomfort=scenario['alpha_value'],
+                consumer_type='original'
+            )
+            
+            # Override with question 1b data to ensure consistency
+            temp_model.energy_prices = energy_prices_1b
+            temp_model.active_tariff = [import_tariff_1b] * 24  # Flat tariff
+            
+            # Build and run optimization
+            temp_model._build_variables()
+            temp_model._build_constraints()
+            temp_model._build_objective_function()
+            temp_model.model.update()
+            temp_model.model.optimize()
+            
+            if temp_model.model.status == 2:  # Optimal
+                temp_model._save_results()
+                
+                # Extract data
+                hourly_demand = [temp_model.results.D_hour[t] for t in range(24)]
+                hourly_import = [temp_model.results.P_imp[t] for t in range(24)]
+                hourly_pv = [temp_model.results.P_PV_prod[t] for t in range(24)]
+                
+                # Calculate reference demand for comparison
+                hourly_reference = [temp_model.hourly_preference[t] * temp_model.max_power_load for t in range(24)]
+                
+                # Extract dual variables
+                dual_values = []
+                for t in range(24):
+                    if t in temp_model.energy_balance_constraints:
+                        dual_values.append(temp_model.energy_balance_constraints[t].Pi)
+                    else:
+                        dual_values.append(0)
+                
+                # Calculate combined prices
+                combined_prices = [energy_prices_1b[t] + import_tariff_1b for t in range(24)]
+                
+                # Calculate discomfort metrics
+                total_discomfort = temp_model.results.total_discomfort
+                import_cost = sum(temp_model.results.P_imp[t] * combined_prices[t] for t in range(24))
+                discomfort_cost = scenario['alpha_value'] * total_discomfort
+                
+                # Store results
+                scenario_results[scenario['name']] = {
+                    'alpha_value': scenario['alpha_value'],
+                    'dual_values': dual_values,
+                    'combined_prices': combined_prices,
+                    'hourly_demand': hourly_demand,
+                    'hourly_reference': hourly_reference,
+                    'hourly_import': hourly_import,
+                    'hourly_pv': hourly_pv,
+                    'objective_value': temp_model.results.objective_value,
+                    'total_discomfort': total_discomfort,
+                    'import_cost': import_cost,
+                    'discomfort_cost': discomfort_cost
+                }
+                
+                # Create subplot
+                ax1 = axes[idx]
+                ax2 = ax1.twinx()
+                
+                # Get max D_hour limit
+                max_d_hour = temp_model.max_power_load
+                
+                # Plot power data on left y-axis (kW)
+                ax1.step(hours, hourly_demand, 'blue', linewidth=3, where='mid',
+                        label='Actual Demand (D_hour)', linestyle='-')
+                ax1.step(hours, hourly_reference, 'steelblue', linewidth=2, where='mid',
+                        label='Reference Demand', linestyle=':', alpha=0.7)
+                ax1.step(hours, hourly_import, 'red', linewidth=2, where='mid',
+                        label='Hourly Import', linestyle='-')
+                ax1.step(hours, hourly_pv, 'yellow', linewidth=2, where='mid',
+                        label='PV Production', linestyle='-')
+                
+                # Add max D_hour limit as horizontal line
+                ax1.axhline(y=max_d_hour, color='turquoise', linewidth=2, linestyle='--',
+                        label=f'Max D_hour Limit ({max_d_hour:.1f} kW)')
+                
+                # Plot dual variables and prices on right y-axis
+                ax2.step(hours, dual_values, 'black', linewidth=2, where='mid',
+                        label='Energy Balance Duals', linestyle=':', marker='o', markersize=4)
+                ax2.step(hours, combined_prices, 'magenta', linewidth=2, where='mid',
+                        label='Total Price (Energy + Tariff)', linestyle='--', marker='s', markersize=3)
+                
+                # Add zero line for dual variables
+                ax2.axhline(y=0, color='gray', linewidth=1, linestyle=':', alpha=0.7)
+                
+                # Formatting
+                ax1.set_ylabel('Power (kW)', fontsize=11)
+                ax2.set_ylabel('Dual Variables & Prices (DKK/kWh)', fontsize=11, color='black')
+                
+                # Title with scenario description and costs breakdown
+                ax1.set_title(f'{scenario["name"]}\n'
+                            f'Optimal Objective: {temp_model.results.objective_value:.2f}  '
+                            f'(Import: {import_cost:.2f} + Discomfort: {discomfort_cost:.2f})', 
+                            fontsize=11, fontweight='bold')
+                
+                ax1.set_xlim(-0.5, 23.5)
+                ax1.grid(True, alpha=0.3)
+                
+                # Color y-axis labels
+                ax1.tick_params(axis='y', labelcolor='black')
+                ax2.tick_params(axis='y', labelcolor='black')
+                
+                # Legend
+                lines1, labels1 = ax1.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=8)
+                
+            else:
+                print(f"Optimization failed for {scenario['name']}")
+                axes[idx].text(0.5, 0.5, f'Optimization Failed\nfor {scenario["name"]}', 
+                            transform=axes[idx].transAxes, ha='center', va='center', fontsize=14)
+        
+        # X-axis formatting
+        axes[-1].set_xlabel('Hours', fontsize=12)
+        axes[-1].set_xticks(range(0, 24, 2))
+        axes[-1].set_xticklabels([f'{h}:00' for h in range(0, 24, 2)], rotation=45)
+        
+        plt.tight_layout()
+        
+        # Print detailed comparison summary
+        print(f"\n" + "="*90)
+        print("ALPHA SENSITIVITY ANALYSIS (QUESTION 1b)")
+        print("="*90)
+        
+        for scenario_name, results in scenario_results.items():
+            print(f"\n{scenario_name}:")
+            print(f"  Alpha Value: {results['alpha_value']:.3f}")
+            print(f"  Optimal Objective: {results['objective_value']:.2f}")
+            print(f"    - Import Cost: {results['import_cost']:.2f} DKK")
+            print(f"    - Discomfort Cost: {results['discomfort_cost']:.2f} DKK")
+            print(f"  Total Discomfort: {results['total_discomfort']:.3f} kW")
+            print(f"  Peak Demand Shift: {max(results['hourly_demand']) - max(results['hourly_reference']):.3f} kW")
+            print(f"  Demand Variability: {max(results['hourly_demand']) - min(results['hourly_demand']):.3f} kW")
+        
+        # Analysis of trade-offs
+        print(f"\nTRADE-OFF ANALYSIS:")
+        if len(scenario_results) >= 2:
+            scenarios = list(scenario_results.values())
+            print(f"Objective reduction from Scenario 3 to 2: {scenarios[2]['objective_value'] - scenarios[1]['objective_value']:.2f} ")
+            print(f"Discomfort increase from Scenario 3 to 2: {scenarios[1]['total_discomfort'] - scenarios[2]['total_discomfort']:.3f} kW")
         
         return fig, scenario_results
+
+
     def plot_question_1a_results(self, figsize=(12, 8)):
         """
         Plot Question 1a results with 4 elements:
