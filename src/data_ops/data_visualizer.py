@@ -21,7 +21,322 @@ class DataVisualizer:
             model: OptModel instance containing the optimization results and data
         """
         self.model = model
+
+    def plot_dual_variables_analysis(self, figsize=(14, 10)):
+        """
+        Plot dual variables for energy balance constraints together with:
+        - Hourly demand (D_hour)
+        - Max D_hour limit line
+        - Hourly import
+        - Hourly PV production
         
+        Args:
+            figsize: Figure size tuple (width, height)
+        """
+        # Create figure with dual y-axes
+        fig, ax1 = plt.subplots(figsize=figsize)
+        ax2 = ax1.twinx()  # Second y-axis for dual variables
+        
+        # Hours for x-axis
+        hours = list(range(24))
+        
+        # Extract data from model results
+        if hasattr(self.model, 'results'):
+            hourly_demand = [self.model.results.D_hour[t] for t in range(24)]
+            hourly_import = [self.model.results.P_imp[t] for t in range(24)]
+            hourly_pv = [self.model.results.P_PV_prod[t] for t in range(24)]
+        else:
+            print("Warning: No results found in model")
+            hourly_demand = [0] * 24
+            hourly_import = [0] * 24
+            hourly_pv = [0] * 24
+        
+        # Extract dual variables for energy balance constraints
+        dual_values = []
+        if hasattr(self.model, 'energy_balance_constraints'):
+            for t in range(24):
+                # Handle different constraint naming schemes
+                if t in self.model.energy_balance_constraints:
+                    dual_values.append(self.model.energy_balance_constraints[t].Pi)
+                elif f'upper_{t}' in self.model.energy_balance_constraints:
+                    dual_values.append(self.model.energy_balance_constraints[f'upper_{t}'].Pi)
+                else:
+                    dual_values.append(0)
+        else:
+            dual_values = [0] * 24
+
+            # Get price data
+        energy_prices = getattr(self.model, 'energy_prices', [0] * 24)
+        active_tariff = getattr(self.model, 'active_tariff', [0] * 24)
+        
+        # Calculate combined prices (energy price + tariff)
+        combined_prices = [ep + tariff for ep, tariff in zip(energy_prices, active_tariff)]
+    
+        # Get max D_hour limit
+        max_d_hour = getattr(self.model, 'max_power_load', 5.0)  # Default if not found
+        
+        # Plot power data on left y-axis (kW)
+        line1 = ax1.step(hours, hourly_demand, 'purple', linewidth=3, where='mid',
+                        label='Hourly Demand (D_hour)', linestyle='-')
+        line2 = ax1.step(hours, hourly_import, 'blue', linewidth=2, where='mid',
+                        label='Hourly Import', linestyle='-')
+        line3 = ax1.step(hours, hourly_pv, 'orange', linewidth=2, where='mid',
+                        label='PV Production', linestyle='-')
+        
+        # Add max D_hour limit as horizontal line
+        line4 = ax1.axhline(y=max_d_hour, color='red', linewidth=2, linestyle='--',
+                        label=f'Max D_hour Limit ({max_d_hour:.1f} kW)')
+        
+        # Plot dual variables on right y-axis (DKK/kWh)
+        line5 = ax2.step(hours, dual_values, 'black', linewidth=3, where='mid',
+                        label='Energy Balance Duals', linestyle=':', marker='o', markersize=4)
+        line6 = ax2.step(hours, combined_prices, 'magenta', linewidth=2, where='mid',
+                        label='Total Price (Energy + Tariff)', linestyle='--', marker='s', markersize=3)
+    
+        # Add zero line for dual variables
+        ax2.axhline(y=0, color='gray', linewidth=1, linestyle=':', alpha=0.7)
+        
+        # Formatting
+        ax1.set_xlabel('Hours', fontsize=12)
+        ax1.set_ylabel('Power (kW)', fontsize=12, color='black')
+        ax2.set_ylabel('Dual Variables & Prices + Tariffs (DKK/kWh)', fontsize=12, color='green')
+        
+        # Set x-axis
+        ax1.set_xlim(-0.5, 23.5)
+        ax1.set_xticks(range(0, 24, 2))
+        ax1.set_xticklabels([f'{h}:00' for h in range(0, 24, 2)], rotation=45)
+        
+        # Grid
+        ax1.grid(True, alpha=0.3)
+        
+        # Color y-axis labels
+        ax1.tick_params(axis='y', labelcolor='black')
+        ax2.tick_params(axis='y', labelcolor='black')
+        
+        # Combine legends
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=10)
+        
+        # Title
+        title = 'Energy Balance Analysis: Dual Variables and Power Flows'
+        plt.title(title, fontsize=14, fontweight='bold')
+        
+        # Tight layout
+        plt.tight_layout()
+        
+        # Print summary of dual variables
+        print("\nDual Variables Summary:")
+        print(f"  Maximum dual: {max(dual_values):.4f} DKK/kWh (Hour {dual_values.index(max(dual_values))})")
+        print(f"  Minimum dual: {min(dual_values):.4f} DKK/kWh (Hour {dual_values.index(min(dual_values))})")
+        print(f"  Average dual: {sum(dual_values)/len(dual_values):.4f} DKK/kWh")
+        
+        # Find hours with significant dual values
+        significant_duals = [(i, val) for i, val in enumerate(dual_values) if abs(val) > 0.01]
+        if significant_duals:
+            print(f"  Hours with significant duals (>0.01):")
+            for hour, dual in significant_duals:
+                print(f"    Hour {hour}: {dual:.4f} DKK/kWh")
+        
+        return fig
+    def plot_dual_sensitivity_analysis(self, figsize=(18, 12)):
+        """
+        Create three plots showing how dual variables change with different tariff/price scenarios:
+        1. Fixed tariff + Fixed energy price
+        2. Fixed tariff + Dynamic energy price  
+        3. Dynamic tariff + Fixed energy price
+        
+        Args:
+            figsize: Figure size tuple (width, height)
+        """
+        from opt_model.opt_model import OptModel
+        
+        # Get data from bus_params.json
+        fixed_import_tariff = 0.5  # import_tariff_DKK/kWh from your data
+        fixed_energy_price = 1.0   # fixed_energy_price_DKK_per_kWh from your data
+        
+        # Dynamic energy prices from your data
+        dynamic_energy_prices = [
+            1.1, 1.05, 1.0, 0.9, 0.85, 1.01, 1.05, 1.2, 1.4, 1.6,
+            1.5, 1.1, 1.05, 1.0, 0.95, 1.0, 1.2, 1.5, 2.1, 2.5,
+            2.2, 1.8, 1.4, 1.2
+        ]
+        
+        # Dynamic import tariff from your data (TOU Radius)
+        dynamic_import_tariff = [
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.29, 0.29, 0.29, 0.29,
+            0.29, 0.29, 0.29, 0.29, 0.29, 0.29, 0.29, 0.88, 0.88, 0.88,
+            0.88, 0.29, 0.29, 0.29
+        ]
+        
+        # Define three scenarios based on your data
+        price_scenarios = [
+            {
+                'name': 'Scenario 1: Fixed Tariff + Fixed Energy Price',
+                'description': f'Fixed import tariff ({fixed_import_tariff} DKK/kWh) + Fixed energy price ({fixed_energy_price} DKK/kWh)',
+                'energy_prices': [fixed_energy_price] * 24,
+                'import_tariff': [fixed_import_tariff] * 24,
+                'tariff_scenario': 'import_tariff'  # Use flat tariff scenario
+            },
+            {
+                'name': 'Scenario 2: Fixed Tariff + Dynamic Energy Price',
+                'description': f'Fixed import tariff ({fixed_import_tariff} DKK/kWh) + Dynamic energy prices',
+                'energy_prices': dynamic_energy_prices,
+                'import_tariff': [fixed_import_tariff] * 24,
+                'tariff_scenario': 'import_tariff'  # Use flat tariff scenario
+            },
+            {
+                'name': 'Scenario 3: Dynamic Tariff + Fixed Energy Price',
+                'description': f'TOU Radius tariff + Fixed energy price ({fixed_energy_price} DKK/kWh)',
+                'energy_prices': [fixed_energy_price] * 24,
+                'import_tariff': dynamic_import_tariff,
+                'tariff_scenario': 'TOU_import_tariff_Radius'  # Use TOU tariff scenario
+            }
+        ]
+        
+        # Create subplots - 3 scenarios vertically
+        fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True)
+        fig.suptitle('Dual Variable Sensitivity Analysis: Fixed vs Dynamic Tariffs and Energy Prices', 
+                    fontsize=16, fontweight='bold')
+        
+        hours = list(range(24))
+        scenario_results = {}
+        
+        for idx, scenario in enumerate(price_scenarios):
+            print(f"\nRunning {scenario['name']}")
+            
+            # Create new model with specified scenario
+            temp_model = OptModel(
+                tariff_scenario=scenario['tariff_scenario'],
+                question=self.model.question,
+                alpha_discomfort=getattr(self.model, 'alpha_discomfort', 1.0),
+                consumer_type='original'
+            )
+            
+            # Override energy prices and tariff
+            temp_model.energy_prices = scenario['energy_prices']
+            temp_model.active_tariff = scenario['import_tariff']
+            
+            # Build and run optimization
+            temp_model._build_variables()
+            temp_model._build_constraints()
+            temp_model._build_objective_function()
+            temp_model.model.update()
+            temp_model.model.optimize()
+            
+            if temp_model.model.status == 2:  # Optimal
+                temp_model._save_results()
+                
+                # Extract data
+                hourly_demand = [temp_model.results.D_hour[t] for t in range(24)]
+                hourly_import = [temp_model.results.P_imp[t] for t in range(24)]
+                hourly_pv = [temp_model.results.P_PV_prod[t] for t in range(24)]
+                
+                # Extract dual variables
+                dual_values = []
+                for t in range(24):
+                    if t in temp_model.energy_balance_constraints:
+                        dual_values.append(temp_model.energy_balance_constraints[t].Pi)
+                    elif f'upper_{t}' in temp_model.energy_balance_constraints:
+                        dual_values.append(temp_model.energy_balance_constraints[f'upper_{t}'].Pi)
+                    else:
+                        dual_values.append(0)
+                
+                # Calculate combined prices
+                combined_prices = [ep + tariff for ep, tariff in zip(scenario['energy_prices'], scenario['import_tariff'])]
+                
+                # Store results
+                scenario_results[scenario['name']] = {
+                    'dual_values': dual_values,
+                    'combined_prices': combined_prices,
+                    'energy_prices': scenario['energy_prices'],
+                    'import_tariff': scenario['import_tariff'],
+                    'hourly_demand': hourly_demand,
+                    'hourly_import': hourly_import,
+                    'hourly_pv': hourly_pv,
+                    'objective_value': temp_model.results.objective_value
+                }
+                
+                # Create subplot
+                ax1 = axes[idx]
+                ax2 = ax1.twinx()
+                
+                # Get max D_hour limit
+                max_d_hour = getattr(temp_model, 'max_power_load', 5.0)
+                
+                # Plot power data on left y-axis (kW)
+                ax1.step(hours, hourly_demand, 'purple', linewidth=3, where='mid',
+                        label='Hourly Demand (D_hour)', linestyle='-')
+                ax1.step(hours, hourly_import, 'blue', linewidth=2, where='mid',
+                        label='Hourly Import', linestyle='-')
+                ax1.step(hours, hourly_pv, 'orange', linewidth=2, where='mid',
+                        label='PV Production', linestyle='-')
+                
+                # Add max D_hour limit as horizontal line
+                ax1.axhline(y=max_d_hour, color='red', linewidth=2, linestyle='--',
+                        label=f'Max D_hour Limit ({max_d_hour:.1f} kW)')
+                
+                # Plot dual variables and prices on right y-axis
+                ax2.step(hours, dual_values, 'black', linewidth=2, where='mid',
+                        label='Energy Balance Duals', linestyle=':', marker='o', markersize=4)
+                ax2.step(hours, combined_prices, 'magenta', linewidth=2, where='mid',
+                        label='Total Price (Energy + Tariff)', linestyle='--', marker='s', markersize=3)
+                
+                # Add zero line for dual variables
+                ax2.axhline(y=0, color='gray', linewidth=1, linestyle=':', alpha=0.7)
+                
+                # Formatting
+                ax1.set_ylabel('Power (kW)', fontsize=11)
+                ax2.set_ylabel('Dual Variables & Prices (DKK/kWh)', fontsize=11, color='black')
+                
+                # Title with scenario description and cost
+                ax1.set_title(f'{scenario["name"]}\nTotal Cost: {temp_model.results.objective_value:.2f} DKK', 
+                            fontsize=11, fontweight='bold')
+                
+                ax1.set_xlim(-0.5, 23.5)
+                ax1.grid(True, alpha=0.3)
+                
+                # Color y-axis labels
+                ax1.tick_params(axis='y', labelcolor='black')
+                ax2.tick_params(axis='y', labelcolor='black')
+                
+                # Legend
+                lines1, labels1 = ax1.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=8)
+                
+            else:
+                print(f" Optimization failed for {scenario['name']}")
+                axes[idx].text(0.5, 0.5, f'Optimization Failed\nfor {scenario["name"]}', 
+                            transform=axes[idx].transAxes, ha='center', va='center', fontsize=14)
+        
+        # X-axis formatting
+        axes[-1].set_xlabel('Hours', fontsize=12)
+        axes[-1].set_xticks(range(0, 24, 2))
+        axes[-1].set_xticklabels([f'{h}:00' for h in range(0, 24, 2)], rotation=45)
+        
+        plt.tight_layout()
+        
+        # Print detailed comparison summary
+        print(f"\n" + "="*90)
+        print("TARIFF & ENERGY PRICE SCENARIO COMPARISON")
+        print("="*90)
+        
+        for scenario_name, results in scenario_results.items():
+            print(f"\n{scenario_name}:")
+            print(f"  Total Cost: {results['objective_value']:.2f} DKK")
+            print(f"  Total Import: {sum(results['hourly_import']):.2f} kW")
+            print(f"  Peak Import Hour: {results['hourly_import'].index(max(results['hourly_import']))} (Import: {max(results['hourly_import']):.2f} kW)")
+            print(f"  Peak Demand Hour: {results['hourly_demand'].index(max(results['hourly_demand']))} (Demand: {max(results['hourly_demand']):.2f} kW)")
+            print(f"  Dual Variables:")
+            print(f"    Max: {max(results['dual_values']):.4f} DKK/kWh (Hour {results['dual_values'].index(max(results['dual_values']))})")
+            print(f"    Min: {min(results['dual_values']):.4f} DKK/kWh (Hour {results['dual_values'].index(min(results['dual_values']))})")
+            print(f"    Avg: {sum(results['dual_values'])/len(results['dual_values']):.4f} DKK/kWh")
+            print(f"  Price Structure:")
+            print(f"    Max Total Price: {max(results['combined_prices']):.4f} DKK/kWh (Hour {results['combined_prices'].index(max(results['combined_prices']))})")
+            print(f"    Min Total Price: {min(results['combined_prices']):.4f} DKK/kWh (Hour {results['combined_prices'].index(min(results['combined_prices']))})")
+        
+        return fig, scenario_results
     def plot_question_1a_results(self, figsize=(12, 8)):
         """
         Plot Question 1a results with 4 elements:
@@ -126,6 +441,7 @@ class DataVisualizer:
         plt.tight_layout()
         
         return fig
+    
     
     
     def _get_tariff_name(self):

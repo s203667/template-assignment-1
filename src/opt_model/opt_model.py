@@ -112,20 +112,19 @@ class OptModel():
     def _build_variables(self):
         
 
-        # Only create decision variables: P_imp, P_exp, P_PV_prod
+        # Only create decision variables: P_imp, P_exp, P_PV_prod and D_hour
         self.P_imp = {t: self.model.addVar(lb=0, name=f'P_imp_{t}') for t in range(self.T)}
         self.P_exp = {t: self.model.addVar(lb=0, name=f'P_exp_{t}') for t in range(self.T)}
         self.P_PV_prod = {t: self.model.addVar(lb=0, name=f'P_PV_prod_{t}') for t in range(self.T)}
+        self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
         
         # For question 1b, create D_hour and discomfort auxiliary variables
         if self.question == '1b':
-            self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
             # Add auxiliary variables for absolute value in discomfort calculation
             self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
             self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
         
         elif self.question == '1c':
-            self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
             # Add auxiliary variables for absolute value in discomfort calculation
             self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
             self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
@@ -135,7 +134,6 @@ class OptModel():
             self.SOC = {t: self.model.addVar(lb=0, ub=self.storage_capacity, name=f'SOC_{t}') for t in range(self.T)}
 
         elif self.question == '2b':
-            self.D_hour = {t: self.model.addVar(lb=0, ub=self.max_power_load, name=f'D_hour_{t}') for t in range(self.T)}
             # Add auxiliary variables for absolute value in discomfort calculation
             self.discomfort_pos = {t: self.model.addVar(lb=0, name=f'discomfort_pos_{t}') for t in range(self.T)}
             self.discomfort_neg = {t: self.model.addVar(lb=0, name=f'discomfort_neg_{t}') for t in range(self.T)}
@@ -153,18 +151,13 @@ class OptModel():
         self.variables.update({f'P_imp_{t}': self.P_imp[t] for t in range(self.T)}) 
         self.variables.update({f'P_exp_{t}': self.P_exp[t] for t in range(self.T)})
         self.variables.update({f'P_PV_prod_{t}': self.P_PV_prod[t] for t in range(self.T)})
-
-        if self.question == '1b':
-            self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
-
-        elif self.question == '1c':
-            self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
+        self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
+        if self.question == '1c':
             self.variables.update({f'P_charge_{t}': self.P_charge[t] for t in range(self.T)})
             self.variables.update({f'P_discharge_{t}': self.P_discharge[t] for t in range(self.T)})
             self.variables.update({f'SOC_{t}': self.SOC[t] for t in range(self.T)})
         
         elif self.question == '2b':
-            self.variables.update({f'D_hour_{t}': self.D_hour[t] for t in range(self.T)})
             self.variables.update({f'P_charge_{t}': self.P_charge[t] for t in range(self.T)})
             self.variables.update({f'P_discharge_{t}': self.P_discharge[t] for t in range(self.T)})
             self.variables.update({f'SOC_{t}': self.SOC[t] for t in range(self.T)})
@@ -191,13 +184,9 @@ class OptModel():
         self.energy_balance_constraints = {}
         for t in range(self.T):
             self.energy_balance_constraints[f'upper_{t}'] = self.model.addLConstr(
-                self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] <= self.max_power_load,
+                self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] - self.D_hour[t] == 0,
                 name=f'energy_balance_upper_{t}'
-            )
-            self.energy_balance_constraints[f'lower_{t}'] = self.model.addLConstr(
-                self.P_PV_prod[t] + self.P_imp[t] - self.P_exp[t] >= 0,
-                name=f'energy_balance_lower_{t}'
-            )
+        )
 
         # Daily demand constraint
         self.daily_demand_constraint = self.model.addLConstr(
@@ -618,11 +607,33 @@ class OptModel():
             capital_cost_daily = capital_cost_DKK / (10*365)
             print(f"Battery Capital Cost (daily, DKK): {capital_cost_daily:.2f}")
 
-        
-        print(f"\nTotal daily demand: {sum(self.results.D_hour.values()):.4f} kWh")
-        print("--------------------------------------------------")
+        print("\nDual Variables for Energy Balance Constraints:")
+        if hasattr(self, 'energy_balance_constraints'):
+            for constraint_name, constraint in self.energy_balance_constraints.items():
+                dual_value = constraint.Pi
+                print(f"  {constraint_name}: {dual_value:.4f}")
 
-"""
+        print("\ndual varibles for daily demand constraint:")
+        if hasattr(self, 'daily_demand_constraint'):
+            for constraint_name, constraint in {'daily_demand_constraint': self.daily_demand_constraint}.items():
+                dual_value = constraint.Pi
+                print(f"  {constraint_name}: {dual_value:.4f}")
+
+
+    """
+        # Summary statistics
+        all_duals = []
+        for constraint in self.energy_balance_constraints.values():
+            all_duals.append(constraint.Pi)
+        
+        if all_duals:
+            print(f"\nSummary Statistics for Energy Balance Duals:")
+            print(f"  Maximum: {max(all_duals):.6f}")
+            print(f"  Minimum: {min(all_duals):.6f}")
+            print(f"  Average: {sum(all_duals)/len(all_duals):.6f}")
+    """
+
+    """
 #Lesias kode:
 
     def _build_objective_function(self):

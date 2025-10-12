@@ -84,6 +84,7 @@
   "max_export_kW": 500,
   "penalty_excess_import_DKK/kWh": 10,
   "penalty_excess_export_DKK/kWh": 10,
+   "fixed_energy_price_DKK_per_kWh": 1.0,
   "energy_price_DKK_per_kWh": [
     1.1,
     1.05,
