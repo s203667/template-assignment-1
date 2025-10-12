@@ -422,7 +422,14 @@ class DataVisualizer:
                 hourly_demand = [temp_model.results.D_hour[t] for t in range(24)]
                 hourly_import = [temp_model.results.P_imp[t] for t in range(24)]
                 hourly_pv = [temp_model.results.P_PV_prod[t] for t in range(24)]
-                
+                # ADD: Extract export data
+                if hasattr(temp_model.results, 'P_exp'):
+                    hourly_export = [temp_model.results.P_exp[t] for t in range(24)]
+                else:
+                    hourly_export = [0] * 24  # Fallback if no export
+
+
+            
                 # Calculate reference demand for comparison
                 hourly_reference = [temp_model.hourly_preference[t] * temp_model.max_power_load for t in range(24)]
                 
@@ -450,6 +457,7 @@ class DataVisualizer:
                     'hourly_demand': hourly_demand,
                     'hourly_reference': hourly_reference,
                     'hourly_import': hourly_import,
+                    'hourly_export': hourly_export,
                     'hourly_pv': hourly_pv,
                     'objective_value': temp_model.results.objective_value,
                     'total_discomfort': total_discomfort,
@@ -473,6 +481,9 @@ class DataVisualizer:
                         label='Hourly Import', linestyle='-')
                 ax1.step(hours, hourly_pv, 'yellow', linewidth=2, where='mid',
                         label='PV Production', linestyle='-')
+                        # ADD: Plot export as negative values to show it going "out"
+                ax1.step(hours, [-exp for exp in hourly_export], 'purple', linewidth=2, where='mid',
+                        label='PV Export', linestyle='-')
                 
                 # Add max D_hour limit as horizontal line
                 ax1.axhline(y=max_d_hour, color='turquoise', linewidth=2, linestyle='--',
@@ -600,10 +611,8 @@ class DataVisualizer:
         ]
         
         # Create subplots - 3 scenarios vertically
-        fig, axes = plt.subplots(6, 1, figsize=(figsize[0], figsize[1]+6), sharex=True)
-        fig.suptitle('Question 1c: Battery Impact Analysis - Fixed vs Dynamic Tariffs and Energy Prices', 
-                    fontsize=16, fontweight='bold')
-        
+        fig, axes = plt.subplots(6, 1, figsize=(figsize[0], figsize[1]+8), sharex=True)
+
         hours = list(range(24))
         scenario_results = {}
         
@@ -640,6 +649,10 @@ class DataVisualizer:
                 # NEW: Extract battery data for Question 1c
                 hourly_charge = [temp_model.results.P_charge[t] for t in range(24)]
                 hourly_discharge = [temp_model.results.P_discharge[t] for t in range(24)]
+                if hasattr(temp_model.results, 'P_exp'):
+                    hourly_export = [temp_model.results.P_exp[t] for t in range(24)]
+                else:
+                    hourly_export = [0] * 24  # Fallback if no export
                 
                 # Extract dual variables
                 dual_values = []
@@ -662,6 +675,7 @@ class DataVisualizer:
                     'import_tariff': scenario['import_tariff'],
                     'hourly_demand': hourly_demand,
                     'hourly_import': hourly_import,
+                    'hourly_export': hourly_export,
                     'hourly_pv': hourly_pv,
                     'hourly_charge': hourly_charge,  # NEW
                     'hourly_discharge': hourly_discharge,  # NEW
@@ -681,6 +695,8 @@ class DataVisualizer:
                         label='Hourly Import', linestyle='-')
                 ax1.step(hours, hourly_pv, 'yellow', linewidth=2, where='mid',
                         label='PV Production', linestyle='-')
+                ax1.step(hours, [-exp for exp in hourly_export], 'purple', linewidth=2, where='mid',
+                        label='PV Export', linestyle='-')
 
                 # Add max D_hour limit as horizontal line
                 max_d_hour = getattr(temp_model, 'max_power_load', 5.0)
@@ -786,9 +802,7 @@ class DataVisualizer:
         ]
         
         # Create subplots - 6 scenarios vertically
-        fig, axes = plt.subplots(6, 1, figsize=(figsize[0], figsize[1]+6), sharex=True)
-        fig.suptitle('Question 1c: Alpha Sensitivity Analysis with Battery - Cost vs Comfort Trade-off', 
-                    fontsize=16, fontweight='bold')
+        fig, axes = plt.subplots(6, 1, figsize=(figsize[0], figsize[1]+8), sharex=True)
         
         hours = list(range(24))
         scenario_results = {}
@@ -822,11 +836,16 @@ class DataVisualizer:
                 hourly_demand = [temp_model.results.D_hour[t] for t in range(24)]
                 hourly_import = [temp_model.results.P_imp[t] for t in range(24)]
                 hourly_pv = [temp_model.results.P_PV_prod[t] for t in range(24)]
+
                 
                 # NEW: Extract battery data for Question 1c
                 hourly_charge = [temp_model.results.P_charge[t] for t in range(24)]
                 hourly_discharge = [temp_model.results.P_discharge[t] for t in range(24)]
                 
+                if hasattr(temp_model.results, 'P_exp'):
+                    hourly_export = [temp_model.results.P_exp[t] for t in range(24)]
+                else:
+                    hourly_export = [0] * 24  # Fallback if no export
                 # Calculate reference demand for comparison
                 hourly_reference = [temp_model.hourly_preference[t] * temp_model.max_power_load for t in range(24)]
                 
@@ -854,6 +873,7 @@ class DataVisualizer:
                     'hourly_demand': hourly_demand,
                     'hourly_reference': hourly_reference,
                     'hourly_import': hourly_import,
+                    'hourly_export': hourly_export,
                     'hourly_pv': hourly_pv,
                     'hourly_charge': hourly_charge,  # NEW
                     'hourly_discharge': hourly_discharge,  # NEW
@@ -877,6 +897,8 @@ class DataVisualizer:
                         label='Hourly Import', linestyle='-')
                 ax1.step(hours, hourly_pv, 'yellow', linewidth=2, where='mid',
                         label='PV Production', linestyle='-')
+                ax1.step(hours, [-exp for exp in hourly_export], 'purple', linewidth=2, where='mid',
+                        label='PV Export', linestyle='-')
 
                 # Add max D_hour limit as horizontal line
                 max_d_hour = getattr(temp_model, 'max_power_load', 5.0)
